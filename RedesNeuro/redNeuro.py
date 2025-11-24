@@ -44,7 +44,6 @@ while True:
 images = images.astype("float32") / 255.0
 
 # Aplanar imágenes (28x28 a 784)
-images = images.reshape(-1, 784)
 
 print(f'Numero de labels: {len(labels)}')
 
@@ -54,22 +53,20 @@ images = np.array(images)
 # crear modelo
 def create_mlp():
     model = models.Sequential([
-        layers.Dense(128, activation='relu', input_shape=(784,)), # Primera Capa oculta
+        # Cada capa de pooling reduce la resolución espacial de las características
+        layers.Conv2D(32, (3, 3), activation='relu', padding='same', input_shape=(28,28,1)),
+        layers.MaxPooling2D((2, 2),padding='same'),
+
+        #Segunda capa de pooling
+        layers.Conv2D(32, (3, 3), activation='relu',padding='same'),
+        layers.MaxPooling2D((2, 2),padding='same'),
         layers.Dropout(0.2),
+        layers.Flatten(),
 
-        layers.Dense(256, activation='relu'), # Segunda Capa oculta
-        layers.Dropout(0.3),
-
-        layers.Dense(128, activation='relu'), # Tercera Capa oculta
+        layers.Dense(512, activation='relu'),
         layers.Dropout(0.2),
-
-        layers.Dense(256, activation='relu'), # Cuarta Capa oculta
-        layers.Dropout(0.25),
-
-        layers.Dense(128, activation='relu'), # Quinta Capa oculta
-        layers.Dropout(0.15),
-
-        layers.Dense(10, activation='softmax') # Capa de Salida
+        
+        layers.Dense(10, activation='softmax')
     ])
     
     model.compile(
@@ -92,16 +89,16 @@ im_train_split, im_val, lab_train_split, lab_val = train_test_split(
     stratify=labels  # mantiene proporción de clases
 )
 
-early_stopper = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+early_stopper = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
 reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2,
-                              patience=3, min_lr=0.0001)
+                              patience=1, min_lr=0.00005)
 
 # Configurando epocas
 model = create_mlp()
 history = model.fit(
     im_train_split, lab_train_split, # Partición de entrenamiento
     validation_data=(im_val, lab_val), # Partición de validación
-    epochs=40, # Número de épocas de entrenamiento (veces que se pasa por el conjunto de datos entero)
+    epochs=20, # Número de épocas de entrenamiento (veces que se pasa por el conjunto de datos entero)
     batch_size=128, # Número de muestras que se procesan a la vez antes de hacer el paso hacia atrás
     verbose=2,
     callbacks=[early_stopper,reduce_lr]
@@ -142,6 +139,8 @@ plt.legend()
 
 plt.tight_layout()
 plt.show()
+
+print(model.summary())
 
 #Enseña la imagen
 
