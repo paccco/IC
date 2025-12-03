@@ -53,26 +53,40 @@ images = np.array(images)
 # crear modelo
 def create_mlp():
     model = models.Sequential([
+        layers.RandomRotation(0.1, input_shape=(28,28,1)),
+        layers.RandomZoom(0.1),
         # Cada capa de pooling reduce la resolución espacial de las características
-        layers.Conv2D(32, (3, 3), activation='relu', padding='same', input_shape=(28,28,1)),
+        layers.Conv2D(8, (3, 3),
+                      #kernel_initializer='he_normal',
+                      activation='selu',
+                      padding='same',
+                      input_shape=(28,28,1)),
+        layers.Conv2D(16, (3, 3),activation='selu',padding='same'),
         layers.MaxPooling2D((2, 2),padding='same'),
+        layers.Dropout(0.3),
 
-        #Segunda capa de pooling
-        layers.Conv2D(32, (3, 3), activation='relu',padding='same'),
+        layers.Conv2D(32, (3, 3),activation='selu',padding='same'),
+        layers.Conv2D(32, (3, 3),activation='selu',padding='same'),
+        layers.BatchNormalization(),
         layers.MaxPooling2D((2, 2),padding='same'),
-        layers.Dropout(0.2),
+        layers.Dropout(0.3),
+
+        layers.Conv2D(64, (3, 3),activation='selu',padding='same'),
+        layers.Conv2D(64, (3, 3),activation='selu',padding='same'),
+        layers.BatchNormalization(),
+        layers.Dropout(0.3),
+
         layers.Flatten(),
 
-        layers.Dense(512, activation='relu'),
-        layers.Dropout(0.2),
-        
+        layers.Dense(128, activation='selu'),
+
         layers.Dense(10, activation='softmax')
     ])
-    
+
     model.compile(
-        optimizer=optimizers.AdamW(learning_rate=0.001), # Algoritmo de optimización
+        optimizer=optimizers.AdamW(learning_rate=0.001, weight_decay=0.006), # Algoritmo de optimización
         loss='sparse_categorical_crossentropy', # Función de pérdida
-        metrics=[ # Métricas durante entrenamiento, 
+        metrics=[ # Métricas durante entrenamiento,
                   # aquí solo he puesto una pero siempre debéis usar varias
                   # y utilizar la matriz de confusión para ver problemas específicos de clases
                   # en problemas de clasificación
@@ -89,19 +103,19 @@ im_train_split, im_val, lab_train_split, lab_val = train_test_split(
     stratify=labels  # mantiene proporción de clases
 )
 
-early_stopper = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
-reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2,
-                              patience=1, min_lr=0.00005)
+early_stopper = EarlyStopping(monitor='val_accuracy', patience=20, restore_best_weights=True)
+reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5,
+                              patience=7, min_lr=1e-5)
 
 # Configurando epocas
 model = create_mlp()
 history = model.fit(
     im_train_split, lab_train_split, # Partición de entrenamiento
     validation_data=(im_val, lab_val), # Partición de validación
-    epochs=20, # Número de épocas de entrenamiento (veces que se pasa por el conjunto de datos entero)
-    batch_size=128, # Número de muestras que se procesan a la vez antes de hacer el paso hacia atrás
+    epochs=100, # Número de épocas de entrenamiento (veces que se pasa por el conjunto de datos entero)
+    batch_size=64, # Número de muestras que se procesan a la vez antes de hacer el paso hacia atrás
     verbose=2,
-    callbacks=[early_stopper,reduce_lr]
+    callbacks=[early_stopper, reduce_lr]
 )
 
 val_metrics = model.evaluate(im_val, lab_val, verbose=0)
@@ -142,11 +156,6 @@ plt.show()
 
 print(model.summary())
 
+model.save_weights('pesosMdl_final.weights.h5')
+
 #Enseña la imagen
-
-"""
-# Muestra por pantalla el primer numero para comprobar
-plt.imshow(images[1].reshape(28,28), cmap='gray')
-
-plt.show()
-"""
