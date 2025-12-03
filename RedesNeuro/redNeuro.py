@@ -42,6 +42,11 @@ while True:
 
 # Normalizar a [0,1]
 images = images.astype("float32") / 255.0
+imagesT = imagesT.astype("float32") / 255.0
+
+# Reshape para añadir el canal de color (Train Y Test)
+images = np.expand_dims(images, -1)
+imagesT = np.expand_dims(imagesT, -1)
 
 # Aplanar imágenes (28x28 a 784)
 
@@ -53,38 +58,45 @@ images = np.array(images)
 # crear modelo
 def create_mlp():
     model = models.Sequential([
-        layers.RandomRotation(0.1, input_shape=(28,28,1)),
-        layers.RandomZoom(0.1),
-        # Cada capa de pooling reduce la resolución espacial de las características
-        layers.Conv2D(8, (3, 3),
-                      #kernel_initializer='he_normal',
-                      activation='selu',
-                      padding='same',
-                      input_shape=(28,28,1)),
-        layers.Conv2D(16, (3, 3),activation='selu',padding='same'),
-        layers.MaxPooling2D((2, 2),padding='same'),
-        layers.Dropout(0.3),
+        layers.RandomRotation(0.05, input_shape=(28,28,1)),
+        layers.RandomZoom(0.05),
+        layers.RandomTranslation(height_factor=0.05, width_factor=0.05),
 
-        layers.Conv2D(32, (3, 3),activation='selu',padding='same'),
-        layers.Conv2D(32, (3, 3),activation='selu',padding='same'),
+        # --- Bloque 1: Aprendizaje de bordes y formas simples ---
+        # Doble convolución para capturar más detalles antes de comprimir
+        layers.Conv2D(32, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal'),
         layers.BatchNormalization(),
-        layers.MaxPooling2D((2, 2),padding='same'),
-        layers.Dropout(0.3),
-
-        layers.Conv2D(64, (3, 3),activation='selu',padding='same'),
-        layers.Conv2D(64, (3, 3),activation='selu',padding='same'),
+        layers.Conv2D(32, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal'),
         layers.BatchNormalization(),
-        layers.Dropout(0.3),
+        layers.MaxPooling2D((2, 2)), 
+        layers.Dropout(0.20), # Dropout ligero al principio
 
+        # --- Bloque 2: Aprendizaje de formas complejas ---
+        # Aumentamos filtros a 64
+        layers.Conv2D(64, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal'),
+        layers.BatchNormalization(),
+        layers.Conv2D(64, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal'),
+        layers.BatchNormalization(),
+        layers.MaxPooling2D((2, 2)),
+        layers.Dropout(0.3), # Dropout medio
+
+        # --- Bloque 3: Detalles finos (Opcional, pero ayuda al 99.5%) ---
+        layers.Conv2D(128, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal'),
+        layers.BatchNormalization(),
+        layers.Dropout(0.4), # Dropout más alto en capas profundas
+        
         layers.Flatten(),
 
-        layers.Dense(128, activation='selu'),
+        # --- Clasificador ---
+        layers.Dense(128, activation='relu', kernel_initializer='he_normal'),
+        layers.BatchNormalization(),
+        layers.Dropout(0.5), # Dropout fuerte antes de la decisión final
 
         layers.Dense(10, activation='softmax')
     ])
 
     model.compile(
-        optimizer=optimizers.AdamW(learning_rate=0.001, weight_decay=0.006), # Algoritmo de optimización
+        optimizer=optimizers.Adam(learning_rate=0.001), # Algoritmo de optimización
         loss='sparse_categorical_crossentropy', # Función de pérdida
         metrics=[ # Métricas durante entrenamiento,
                   # aquí solo he puesto una pero siempre debéis usar varias
@@ -103,9 +115,9 @@ im_train_split, im_val, lab_train_split, lab_val = train_test_split(
     stratify=labels  # mantiene proporción de clases
 )
 
-early_stopper = EarlyStopping(monitor='val_accuracy', patience=20, restore_best_weights=True)
+early_stopper = EarlyStopping(monitor='val_accuracy', patience=15, restore_best_weights=True)
 reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5,
-                              patience=7, min_lr=1e-5)
+                              patience=5, min_lr=1e-6)
 
 # Configurando epocas
 model = create_mlp()
@@ -113,7 +125,7 @@ history = model.fit(
     im_train_split, lab_train_split, # Partición de entrenamiento
     validation_data=(im_val, lab_val), # Partición de validación
     epochs=100, # Número de épocas de entrenamiento (veces que se pasa por el conjunto de datos entero)
-    batch_size=64, # Número de muestras que se procesan a la vez antes de hacer el paso hacia atrás
+    batch_size=128, # Número de muestras que se procesan a la vez antes de hacer el paso hacia atrás
     verbose=2,
     callbacks=[early_stopper, reduce_lr]
 )
@@ -156,6 +168,28 @@ plt.show()
 
 print(model.summary())
 
-model.save_weights('pesosMdl_final.weights.h5')
+#model.save_weights('pesosMdl_final.weights.h5')
 
-#Enseña la imagen
+val_metrics = model.evaluate(imagesT, labelsT, verbose=0)
+metric_names = model.metrics_names
+results = dict(zip(metric_names, val_metrics))
+
+print("\n🔹 Métricas finales de validación:")
+for k, v in results.items():
+    print(f"{k:>10s}: {v:.4f}")
+
+# Matriz de confusión y reporte de clasificación
+y_test_pred = np.argmax(model.predict(imagesT), axis=1)
+
+print("\n Classification Report (Validación):")
+print(classification_report(labelsT, y_test_pred, digits=4))
+
+cm = confusion_matrix(labelsT, y_test_pred)
+plt.figure(figsize=(8,6))
+sns.heatmap(cm, annot=True, fmt="d", cmap="Blues")
+plt.title("Matriz de confusión - Test")
+plt.xlabel("Predicción")
+plt.ylabel("Real")
+plt.show()
+
+print(''.join(list(map(str,np.argmax(model.predict(imagesT),axis=1)))))
